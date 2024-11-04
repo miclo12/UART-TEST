@@ -1,0 +1,28 @@
+--cpu Cortex-M0+
+"uarttest\startup_stm32l073xx.o"
+"uarttest\main.o"
+"uarttest\stm32l0xx_it.o"
+"uarttest\stm32l0xx_hal_msp.o"
+"uarttest\stm32l0xx_hal_tim.o"
+"uarttest\stm32l0xx_hal_tim_ex.o"
+"uarttest\stm32l0xx_hal_uart.o"
+"uarttest\stm32l0xx_hal_uart_ex.o"
+"uarttest\stm32l0xx_hal.o"
+"uarttest\stm32l0xx_hal_i2c.o"
+"uarttest\stm32l0xx_hal_i2c_ex.o"
+"uarttest\stm32l0xx_hal_rcc.o"
+"uarttest\stm32l0xx_hal_rcc_ex.o"
+"uarttest\stm32l0xx_hal_flash_ramfunc.o"
+"uarttest\stm32l0xx_hal_flash.o"
+"uarttest\stm32l0xx_hal_flash_ex.o"
+"uarttest\stm32l0xx_hal_gpio.o"
+"uarttest\stm32l0xx_hal_dma.o"
+"uarttest\stm32l0xx_hal_pwr.o"
+"uarttest\stm32l0xx_hal_pwr_ex.o"
+"uarttest\stm32l0xx_hal_cortex.o"
+"uarttest\stm32l0xx_hal_exti.o"
+"uarttest\system_stm32l0xx.o"
+--strict --scatter "UartTest\UartTest.sct"
+--summary_stderr --info summarysizes --map --load_addr_map_info --xref --callgraph --symbols
+--info sizes --info totals --info unused --info veneers
+--list "UartTest.map" -o UartTest\UartTest.axf
