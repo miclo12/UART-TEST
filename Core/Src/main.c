@@ -20,89 +20,148 @@
 #include "main.h"
 #include "stm32l0xx_hal.h"
 #include <string.h>
-
+#include <stdlib.h> // For rand function
+#include <stdio.h>
 
 UART_HandleTypeDef huart2;
 
-uint8_t txdata_AT[2] = "AT";
+uint8_t txdata_AT[3] = "AT";
 uint8_t txdata_QHTTP[17] = "AT+QHTTPURL=63,80";
-uint8_t rxdata[2]="OK"; // Buffer to store received
-uint8_t rxdata2[7]="CONNECT";
-uint8_t txdata_URL[63] = "https://modem-test.vercel.app/sensor-data?sensor1=25&sensor2=-5";
- 
+uint8_t rxdata[32];  // Buffer to store received
+//uint8_t rxdata2[7];
 uint8_t txdata_GET[14] = "AT+QHTTPGET=80";
+uint8_t txdata_URL[64];
+
+
+typedef enum {
+    STATE_SEND_AT,
+    STATE_WAIT_FOR_OK_AT,
+    STATE_SEND_QHTTPURL,
+    STATE_WAIT_FOR_CONNECT,
+    STATE_SEND_URL,
+    STATE_WAIT_FOR_OK_URL,
+    STATE_SEND_QHTTPGET,
+    STATE_WAIT_FOR_QHTTPGET_RESPONSE,
+    STATE_COMPLETE
+} ModemState;
+
+ModemState state = STATE_SEND_AT;
+
+
 
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 
-/**
-  * @brief  The application entry point.
-  * @retval int
-  */
-int main(void)
-{
-     HAL_Init();
-     SystemClock_Config();
-     MX_GPIO_Init();
-	   MX_USART2_UART_Init();
+
+void generate_random_sensor_values(int *sensor1, int *sensor2) {
+    *sensor1 = (rand() % 41) - 10;  // Random value between -10 and 30
+    *sensor2 = (rand() % 41) - 10;  // Random value between -10 and 30
+}
+
+void update_txdata_URL(int sensor1, int sensor2) {
+    // Format URL with sensor values
+    snprintf((char *)txdata_URL, sizeof(txdata_URL), 
+             "https://modem-test.vercel.app/sensor-data?sensor1=%02d&sensor2=%02d", 
+             sensor1, sensor2);
+		
+		   // Sikrer at den sidste byte er en null-terminator for at undgå støj
+    txdata_URL[sizeof(txdata_URL) - 1] = '\0';
+		
+}
+
+void reset_rxdata() {
+    memset(rxdata, 0, sizeof(rxdata));  // Nulstil modtagebufferen for hver ny modtagelse
+}
+
+
+
+int main(void) {
+    HAL_Init();
+    SystemClock_Config();
+    MX_GPIO_Init();
+    MX_USART2_UART_Init();
 	
-	   uint8_t rx_byte; // Buffer til én byte modtagelse
-
-      int txdata_AT_sent = 0;
-	    int txdata_URL_sent = 0;
 	
-	
-   while (1)
-		 
-  {
-		    
-		     
-		     if (txdata_AT_sent == 0) {
-					  HAL_Delay(1000);		
-        // Send txdata_AT only once
-        HAL_UART_Transmit(&huart2, txdata_AT, sizeof(txdata_AT), HAL_MAX_DELAY);
-        // Set the flag to 1 to avoid re-sending
-        txdata_AT_sent = 1;
-					 
-					 
-					 
-    }
 
-         // TJEKKER HVIS OK MODTAGES
-        if (HAL_UART_Receive(&huart2, rxdata, sizeof(rxdata), HAL_MAX_DELAY) == HAL_OK)
+	 // int txdata_QHTTP_sent = 0;
+	  //int txdata_GET_sent = 0;
+    //int txdata_AT_sent = 0;
+    //int txdata_URL_sent = 0;
+    int sensor1 = 0, sensor2 = 0;
 
-        {
-					   HAL_Delay(1000);	
-            // SENDES AT+QHTTP=63,80
-            HAL_UART_Transmit(&huart2, txdata_QHTTP, sizeof(txdata_QHTTP), HAL_MAX_DELAY);
-    
-					
-              // Send hele connect modtages sendes URL					
-					   
-     //					if (HAL_UART_Receive(&huart2, rxdata2, sizeof(rxdata2), HAL_MAX_DELAY) == HAL_OK)
-				//	     {
-							
-               if (txdata_URL_sent == 0) {
-       				 HAL_Delay(3000);	        
-               HAL_UART_Transmit(&huart2, txdata_URL, sizeof(txdata_URL), HAL_MAX_DELAY);
-					 
-								 
-								 txdata_URL_sent=1;
-							 }
-								
-								 HAL_Delay(3000);
-               	 HAL_UART_Transmit(&huart2, txdata_GET, sizeof(txdata_GET), HAL_MAX_DELAY);						
+ 
 
-        
+  while (1) {
+        switch (state) {
+            case STATE_SEND_AT:
+                reset_rxdata();
+                HAL_UART_Transmit(&huart2, txdata_AT, strlen((char *)txdata_AT), HAL_MAX_DELAY);
+                state = STATE_WAIT_FOR_OK_AT;
+                break;
 
-            //  }
+            case STATE_WAIT_FOR_OK_AT:
+                if (HAL_UART_Receive(&huart2, rxdata, 2, 5000) == HAL_OK && 
+                    strncmp((char *)rxdata, "OK", 2) == 0) {
+                    reset_rxdata();
+                    state = STATE_SEND_QHTTPURL;
+											
+											
+                }
+                break;
+
+            case STATE_SEND_QHTTPURL:
+                HAL_UART_Transmit(&huart2, txdata_QHTTP, sizeof(txdata_QHTTP), HAL_MAX_DELAY);
+                state = STATE_WAIT_FOR_CONNECT;
+                break;
+
+            case STATE_WAIT_FOR_CONNECT:
+                if (HAL_UART_Receive(&huart2, rxdata, 7, 5000) == HAL_OK ||
+                    strstr((char *)rxdata, "CONNECT") != NULL) {
+                    reset_rxdata();
+                    generate_random_sensor_values(&sensor1, &sensor2);
+                    update_txdata_URL(sensor1, sensor2);
+                    state = STATE_SEND_URL;
+                }
+                break;
+
+            case STATE_SEND_URL:
+                HAL_UART_Transmit(&huart2, txdata_URL, strlen((char *)txdata_URL), HAL_MAX_DELAY);
+                state = STATE_WAIT_FOR_OK_URL;
+                break;
+
+            case STATE_WAIT_FOR_OK_URL:
+                if (HAL_UART_Receive(&huart2, rxdata, 2, 5000) == HAL_OK ||
+                    strncmp((char *)rxdata, "OK", 2) == 0) {
+                    reset_rxdata();
+                    state = STATE_SEND_QHTTPGET;
+                }
+                break;
+
+            case STATE_SEND_QHTTPGET:
+                HAL_UART_Transmit(&huart2, txdata_GET, sizeof(txdata_GET), HAL_MAX_DELAY);
+                state = STATE_WAIT_FOR_QHTTPGET_RESPONSE;
+                break;
+
+            case STATE_WAIT_FOR_QHTTPGET_RESPONSE:
+                if (HAL_UART_Receive(&huart2, rxdata, sizeof(rxdata), 10000) == HAL_OK ||
+                    strstr((char *)rxdata, "+QHTTPGET: 0,200,25") != NULL) {
+                    reset_rxdata();
+                    state = STATE_COMPLETE;
+                }
+                break;
+
+            case STATE_COMPLETE:
+                HAL_Delay(5000);  // Vent et øjeblik før næste cyklus
+                state = STATE_SEND_AT;  // Start en ny cyklus
+                break;
         }
+    }
+}
 
-   } 	
-	
- }	
-	
+
+
+
 /**
   * @brief System Clock Configuration
   * @retval None
@@ -259,3 +318,132 @@ void assert_failed(uint8_t *file, uint32_t line)
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
+
+
+
+
+
+
+	/*
+	while (1) {
+
+
+          	//if (txdata_AT_sent == 0) {
+            if (txdata_AT_sent == 0 || (strstr((char *)rxdata, "+QHTTPGET: 0,200,25") != NULL)) {
+							
+						memset(rxdata, 0, sizeof(rxdata));  // Ryd modtagebufferen
+	          HAL_Delay(1000);
+            HAL_UART_Transmit(&huart2, txdata_AT, strlen((char *)txdata_AT), HAL_MAX_DELAY);
+            txdata_AT_sent = 1;
+						txdata_URL_sent = 0;
+        }
+
+           //if (HAL_UART_Receive(&huart2, rxdata, sizeof(rxdata), HAL_MAX_DELAY) == HAL_OK) {
+             // HAL_Delay(1000);
+              //HAL_UART_Transmit(&huart2, txdata_QHTTP, sizeof(txdata_QHTTP), HAL_MAX_DELAY);
+				   
+				    // Nulstil buffer og modtag data   
+				       //memset(rxdata, 0, sizeof(rxdata));
+				
+               if (HAL_UART_Receive(&huart2, rxdata, 2, HAL_MAX_DELAY) == HAL_OK) {  // Modtag præcis 2 bytes
+                // Tjek om modtagne data præcist matcher "OK"
+                if (rxdata[0] == 'O' && rxdata[1] == 'K') {
+                 HAL_Delay(1000);
+                 HAL_UART_Transmit(&huart2, txdata_QHTTP, sizeof(txdata_QHTTP), HAL_MAX_DELAY);
+				  
+				    
+				
+				
+                 if (txdata_URL_sent == 0) {
+							
+                  generate_random_sensor_values(&sensor1, &sensor2);  // Generate new random values
+                  update_txdata_URL(sensor1, sensor2);                // Update URL with new values
+                
+							
+   							  HAL_Delay(3000);
+                  HAL_UART_Transmit(&huart2, txdata_URL, strlen((char *)txdata_URL), HAL_MAX_DELAY);
+                  txdata_URL_sent = 1;
+            }
+
+                HAL_Delay(3000);
+                HAL_UART_Transmit(&huart2, txdata_GET, sizeof(txdata_GET), HAL_MAX_DELAY);
+
+                //  txdata_URL_sent = 0;  // Reset to allow new values on the next loop
+            
+						    
+						      
+						     HAL_Delay(3000);     // Wait for a minute before the next update
+					       txdata_AT_sent = 0;
+						     txdata_URL_sent =0;
+					}   
+        }
+    }
+}
+*/
+
+   
+	 /*
+    while (1) {
+        // Debug besked for ny cyklusstart
+      //  HAL_UART_Transmit(&huart2, (uint8_t *)"Starting new cycle\r\n", 20, HAL_MAX_DELAY);
+
+        // Send "AT" kommandoen, eller hvis "+QHTTPGET: 0,200,25" er modtaget, start ny cyklus
+        if (txdata_AT_sent == 0 || (strncmp((char *)rxdata, "+QHTTPGET: 0,200,25", 16) == 0)) {
+            reset_rxdata();
+            HAL_Delay(1000);
+
+            // Send "AT" og sæt flag
+            HAL_UART_Transmit(&huart2, txdata_AT, strlen((char *)txdata_AT), HAL_MAX_DELAY);
+            txdata_AT_sent = 1;
+            txdata_URL_sent = 0;
+        } 
+
+        // Modtag data og kontroller, om vi har modtaget "OK"
+        if (HAL_UART_Receive(&huart2, rxdata, 2, 5000) == HAL_OK) {
+            if (strncmp((char *)rxdata, "OK", 2) == 0) {
+                HAL_Delay(1000);
+
+                // Debug: bekræft modtagelse af "OK"
+                //HAL_UART_Transmit(&huart2, (uint8_t *)"Received OK\r\n", 13, HAL_MAX_DELAY);
+
+                // Send "AT+QHTTPURL=63,80"
+                HAL_UART_Transmit(&huart2, txdata_QHTTP, sizeof(txdata_QHTTP), HAL_MAX_DELAY);
+
+                // Generer og send URL én gang pr. cyklus
+                if (txdata_URL_sent == 0) {
+                    generate_random_sensor_values(&sensor1, &sensor2);
+                    update_txdata_URL(sensor1, sensor2);
+
+                    HAL_Delay(3000);
+                    HAL_UART_Transmit(&huart2, txdata_URL, strlen((char *)txdata_URL), HAL_MAX_DELAY);
+                    txdata_URL_sent = 1;
+
+                    // Debug: bekræft afsendelse af URL
+                    //HAL_UART_Transmit(&huart2, (uint8_t *)"URL sent\r\n", 10, HAL_MAX_DELAY);
+                }
+
+                // Send "AT+QHTTPGET=80"
+                HAL_Delay(3000);
+                HAL_UART_Transmit(&huart2, txdata_GET, sizeof(txdata_GET), HAL_MAX_DELAY);
+
+                // Vent på "+QHTTPGET: 0,200,25" for at afslutte cyklussen
+               // reset_rxdata();
+                if (HAL_UART_Receive(&huart2, rxdata, 16, 10000) == HAL_OK) {
+                    if (strncmp((char *)rxdata, "OK+QHTTPGET: 0,200,25", 16) == 0) {
+                        HAL_Delay(5000);
+                        txdata_AT_sent = 0;
+                        txdata_URL_sent = 0;
+
+                        // Debug: bekræft afslutning af cyklus
+                       // HAL_UART_Transmit(&huart2, (uint8_t *)"Cycle complete\r\n", 16, HAL_MAX_DELAY);
+                    }
+                } else {
+                    // Fejlmeddelelse, hvis "+QHTTPGET: 0,200,25" ikke modtages
+                   // HAL_UART_Transmit(&huart2, (uint8_t *)"Error: No +QHTTPGET response\r\n", 30, HAL_MAX_DELAY);
+                }
+            }
+        }
+    }
+}
+
+*/
